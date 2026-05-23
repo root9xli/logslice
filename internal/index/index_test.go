@@ -1,98 +1,82 @@
-package index_test
+package index
 
 import (
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/user/logslice/internal/index"
 	"github.com/user/logslice/internal/timeparse"
 )
 
-const sampleLog = `2024-01-01T10:00:00Z INFO starting up
-2024-01-01T10:01:00Z INFO connected
-2024-01-01T10:02:00Z WARN high memory
-2024-01-01T10:03:00Z ERROR crash
-2024-01-01T10:04:00Z INFO recovered
-`
-
-func newBuilder(t *testing.T) *index.Builder {
-	t.Helper()
-	p, err := timeparse.NewParser("")
-	if err != nil {
-		t.Fatalf("NewParser: %v", err)
-	}
-	return index.NewBuilder(p)
+func newBuilder() *Builder {
+	p := timeparse.NewParser("")
+	return NewBuilder(p)
 }
 
 func TestBuild_EntryCount(t *testing.T) {
-	b := newBuilder(t)
-	r := strings.NewReader(sampleLog)
-	idx, err := b.Build(r)
+	input := strings.NewReader(
+		"2024-01-01T00:00:00Z line one\n" +
+			"2024-01-01T01:00:00Z line two\n" +
+			"no timestamp here\n" +
+			"2024-01-01T02:00:00Z line three\n",
+	)
+	b := newBuilder()
+	idx, err := b.Build(input)
 	if err != nil {
-		t.Fatalf("Build: %v", err)
+		t.Fatal(err)
 	}
-	if len(idx) != 5 {
-		t.Fatalf("expected 5 entries, got %d", len(idx))
+	if got := len(idx.Entries); got != 3 {
+		t.Fatalf("expected 3 entries, got %d", got)
 	}
 }
 
 func TestBuild_OffsetsAscending(t *testing.T) {
-	b := newBuilder(t)
-	r := strings.NewReader(sampleLog)
-	idx, err := b.Build(r)
+	input := strings.NewReader(
+		"2024-01-01T00:00:00Z alpha\n" +
+			"2024-01-01T01:00:00Z beta\n" +
+			"2024-01-01T02:00:00Z gamma\n",
+	)
+	b := newBuilder()
+	idx, err := b.Build(input)
 	if err != nil {
-		t.Fatalf("Build: %v", err)
+		t.Fatal(err)
 	}
-	for i := 1; i < len(idx); i++ {
-		if idx[i].Offset <= idx[i-1].Offset {
-			t.Errorf("offsets not ascending at %d: %d <= %d", i, idx[i].Offset, idx[i-1].Offset)
+	for i := 1; i < len(idx.Entries); i++ {
+		if idx.Entries[i].Offset <= idx.Entries[i-1].Offset {
+			t.Fatalf("offsets not strictly ascending at index %d", i)
 		}
 	}
 }
 
 func TestSearchStart(t *testing.T) {
-	b := newBuilder(t)
-	r := strings.NewReader(sampleLog)
-	idx, _ := b.Build(r)
-
-	target := time.Date(2024, 1, 1, 10, 2, 0, 0, time.UTC)
-	pos := idx.SearchStart(target)
-	if pos != 2 {
-		t.Errorf("SearchStart: expected 2, got %d", pos)
+	b := newBuilder()
+	idx, _ := b.Build(strings.NewReader(
+		"2024-01-01T00:00:00Z a\n" +
+			"2024-01-01T06:00:00Z b\n" +
+			"2024-01-01T12:00:00Z c\n",
+	))
+	if off := StartOffset(idx, Range{Start: 1, End: 3}); off != idx.Entries[1].Offset {
+		t.Fatalf("unexpected start offset %d", off)
 	}
 }
 
 func TestSearchEnd(t *testing.T) {
-	b := newBuilder(t)
-	r := strings.NewReader(sampleLog)
-	idx, _ := b.Build(r)
-
-	target := time.Date(2024, 1, 1, 10, 2, 0, 0, time.UTC)
-	pos := idx.SearchEnd(target)
-	if pos != 3 {
-		t.Errorf("SearchEnd: expected 3, got %d", pos)
+	b := newBuilder()
+	idx, _ := b.Build(strings.NewReader(
+		"2024-01-01T00:00:00Z a\n" +
+			"2024-01-01T06:00:00Z b\n" +
+			"2024-01-01T12:00:00Z c\n",
+	))
+	if off := EndOffset(idx, Range{Start: 0, End: 2}); off != idx.Entries[2].Offset {
+		t.Fatalf("unexpected end offset %d", off)
 	}
 }
 
-func TestSearchStart_BeforeAll(t *testing.T) {
-	b := newBuilder(t)
-	r := strings.NewReader(sampleLog)
-	idx, _ := b.Build(r)
-
-	target := time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
-	if pos := idx.SearchStart(target); pos != 0 {
-		t.Errorf("expected 0, got %d", pos)
-	}
-}
-
-func TestSearchEnd_AfterAll(t *testing.T) {
-	b := newBuilder(t)
-	r := strings.NewReader(sampleLog)
-	idx, _ := b.Build(r)
-
-	target := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	if pos := idx.SearchEnd(target); pos != len(idx) {
-		t.Errorf("expected %d, got %d", len(idx), pos)
+func TestBuild_Reset(t *testing.T) {
+	b := newBuilder()
+	b.Build(strings.NewReader("2024-01-01T00:00:00Z first\n")) //nolint
+	b.Reset()
+	idx, _ := b.Build(strings.NewReader("2024-01-01T01:00:00Z second\n"))
+	if got := len(idx.Entries); got != 1 {
+		t.Fatalf("expected 1 entry after reset, got %d", got)
 	}
 }

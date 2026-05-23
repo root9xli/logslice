@@ -5,88 +5,63 @@ import (
 	"time"
 )
 
-func makeIndex(times []time.Time) *Index {
-	entries := make([]Entry, len(times))
-	for i, t := range times {
-		entries[i] = Entry{Time: t, Offset: int64(i * 100)}
+func makeIndex(timestamps ...string) *Index {
+	var entries []Entry
+	var offset int64
+	for _, ts := range timestamps {
+		t, _ := time.Parse(time.RFC3339, ts)
+		entries = append(entries, Entry{Offset: offset, Timestamp: t})
+		offset += 50
 	}
 	return &Index{Entries: entries}
 }
 
-var base = time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
-
 func TestSearch_FullRange(t *testing.T) {
-	times := []time.Time{
-		base,
-		base.Add(1 * time.Minute),
-		base.Add(2 * time.Minute),
-		base.Add(3 * time.Minute),
-	}
-	idx := makeIndex(times)
-
-	result := Search(idx, base, base.Add(3*time.Minute))
-	if result.NoMatch() {
-		t.Fatal("expected a match")
-	}
-	if result.StartOffset != 0 {
-		t.Errorf("StartOffset = %d, want 0", result.StartOffset)
-	}
-	if result.EndOffset != -1 {
-		t.Errorf("EndOffset = %d, want -1 (EOF)", result.EndOffset)
+	idx := makeIndex("2024-01-01T00:00:00Z", "2024-01-01T01:00:00Z", "2024-01-01T02:00:00Z")
+	from, _ := time.Parse(time.RFC3339, "2024-01-01T00:00:00Z")
+	to, _ := time.Parse(time.RFC3339, "2024-01-01T02:00:00Z")
+	r := Search(idx, from, to)
+	if r.Start != 0 || r.End != 3 {
+		t.Fatalf("expected [0,3), got [%d,%d)", r.Start, r.End)
 	}
 }
 
 func TestSearch_SubRange(t *testing.T) {
-	times := []time.Time{
-		base,
-		base.Add(1 * time.Minute),
-		base.Add(2 * time.Minute),
-		base.Add(3 * time.Minute),
-	}
-	idx := makeIndex(times)
-
-	result := Search(idx, base.Add(1*time.Minute), base.Add(2*time.Minute))
-	if result.NoMatch() {
-		t.Fatal("expected a match")
-	}
-	if result.StartOffset != 100 {
-		t.Errorf("StartOffset = %d, want 100", result.StartOffset)
-	}
-	if result.EndOffset != 300 {
-		t.Errorf("EndOffset = %d, want 300", result.EndOffset)
+	idx := makeIndex("2024-01-01T00:00:00Z", "2024-01-01T01:00:00Z", "2024-01-01T02:00:00Z")
+	from, _ := time.Parse(time.RFC3339, "2024-01-01T01:00:00Z")
+	to, _ := time.Parse(time.RFC3339, "2024-01-01T01:30:00Z")
+	r := Search(idx, from, to)
+	if r.Start != 1 || r.End != 2 {
+		t.Fatalf("expected [1,2), got [%d,%d)", r.Start, r.End)
 	}
 }
 
 func TestSearch_NoMatch_BeforeAll(t *testing.T) {
-	times := []time.Time{
-		base.Add(5 * time.Minute),
-		base.Add(6 * time.Minute),
-	}
-	idx := makeIndex(times)
-
-	result := Search(idx, base, base.Add(1*time.Minute))
-	if !result.NoMatch() {
-		t.Errorf("expected NoMatch, got %+v", result)
+	idx := makeIndex("2024-01-01T10:00:00Z", "2024-01-01T11:00:00Z")
+	from, _ := time.Parse(time.RFC3339, "2024-01-01T00:00:00Z")
+	to, _ := time.Parse(time.RFC3339, "2024-01-01T09:00:00Z")
+	r := Search(idx, from, to)
+	if !r.Empty() {
+		t.Fatalf("expected empty range, got [%d,%d)", r.Start, r.End)
 	}
 }
 
 func TestSearch_EmptyIndex(t *testing.T) {
-	idx := &Index{Entries: []Entry{}}
-	result := Search(idx, base, base.Add(time.Hour))
-	if result.StartOffset != 0 || result.EndOffset != -1 {
-		t.Errorf("unexpected result for empty index: %+v", result)
+	idx := &Index{}
+	from, _ := time.Parse(time.RFC3339, "2024-01-01T00:00:00Z")
+	to, _ := time.Parse(time.RFC3339, "2024-01-01T23:59:59Z")
+	r := Search(idx, from, to)
+	if !r.Empty() {
+		t.Fatalf("expected empty range for empty index")
 	}
 }
 
-func TestSearch_NoMatch_AfterAll(t *testing.T) {
-	times := []time.Time{
-		base,
-		base.Add(1 * time.Minute),
-	}
-	idx := makeIndex(times)
-
-	result := Search(idx, base.Add(10*time.Minute), base.Add(20*time.Minute))
-	if !result.NoMatch() {
-		t.Errorf("expected NoMatch, got %+v", result)
+func TestSearch_EndOffset_EOF(t *testing.T) {
+	idx := makeIndex("2024-01-01T00:00:00Z", "2024-01-01T01:00:00Z")
+	from, _ := time.Parse(time.RFC3339, "2024-01-01T00:00:00Z")
+	to, _ := time.Parse(time.RFC3339, "2024-01-01T02:00:00Z")
+	r := Search(idx, from, to)
+	if off := EndOffset(idx, r); off != -1 {
+		t.Fatalf("expected -1 (EOF), got %d", off)
 	}
 }

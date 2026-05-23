@@ -1,25 +1,19 @@
-// Package index builds and caches byte-offset indexes for log files.
+// Package index provides facilities for building and searching a byte-offset
+// index over timestamped log streams.
 //
 // # Overview
 //
-// Large log files are expensive to scan sequentially when only a small
-// time-range slice is needed. This package solves the problem by building
-// an in-memory Index — a sorted list of (byte-offset, timestamp) pairs —
-// that allows binary-search lookups for any time range.
+// A Builder scans a log stream line by line, extracts timestamps via a
+// timeparse.Parser, and records each (offset, timestamp) pair as an Entry.
+// The resulting Index can then be queried with Search to locate the contiguous
+// Range of entries whose timestamps fall within a requested [from, to] window.
 //
-// # Usage
-//
-//	p, _ := timeparse.NewParser("")
-//	b := index.NewBuilder(p)
-//	idx, err := b.Build(readSeeker)
-//
-//	start := idx.SearchStart(from)
-//	end   := idx.SearchEnd(to)
-//	// seek to idx[start].Offset and read until idx[end].Offset
+// StartOffset and EndOffset translate a Range back into byte offsets suitable
+// for seeking within the original file, allowing the slicer to read only the
+// relevant portion of a potentially large compressed log.
 //
 // # Caching
 //
-// Use Cache to avoid rebuilding indexes on repeated queries against the
-// same file. The cache validates entries against file size and mtime so
-// stale indexes are never returned after a log rotation or append.
+// The Cache type persists a serialised Index to disk keyed by file path,
+// file size, and mtime, avoiding repeated full-file scans for unchanged logs.
 package index
