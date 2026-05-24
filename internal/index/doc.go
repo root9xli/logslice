@@ -1,19 +1,22 @@
-// Package index provides facilities for building and searching a byte-offset
-// index over timestamped log streams.
+// Package index provides an offset-based index for large log files.
 //
-// # Overview
+// The index maps timestamps to byte offsets within a (possibly compressed)
+// log file, enabling fast binary-search seeks into the file without
+// scanning every line.
 //
-// A Builder scans a log stream line by line, extracts timestamps via a
-// timeparse.Parser, and records each (offset, timestamp) pair as an Entry.
-// The resulting Index can then be queried with Search to locate the contiguous
-// Range of entries whose timestamps fall within a requested [from, to] window.
+// # Building
 //
-// StartOffset and EndOffset translate a Range back into byte offsets suitable
-// for seeking within the original file, allowing the slicer to read only the
-// relevant portion of a potentially large compressed log.
+// Use [NewBuilder] to create an index from a channel of (offset, time) pairs
+// produced while scanning a log file.
+//
+// # Searching
+//
+// [Search] returns the sub-slice of index entries that fall within a given
+// time range. [StartOffset] and [EndOffset] extract the byte offsets that
+// bracket the matching region.
 //
 // # Caching
 //
-// The Cache type persists a serialised Index to disk keyed by file path,
-// file size, and mtime, avoiding repeated full-file scans for unchanged logs.
+// [NewCache] wraps an on-disk JSON cache keyed by file path, size, and mtime
+// so that the index is rebuilt only when the source file changes.
 package index
